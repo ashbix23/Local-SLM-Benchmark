@@ -44,6 +44,27 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model);
 CREATE INDEX IF NOT EXISTS idx_runs_category ON runs(task_category);
 CREATE INDEX IF NOT EXISTS idx_runs_timestamp ON runs(run_timestamp);
+
+CREATE TABLE IF NOT EXISTS routing_decisions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    decided_at          TEXT NOT NULL,
+    prompt_hash         TEXT NOT NULL,
+    prompt_preview      TEXT NOT NULL,
+    classified_category TEXT NOT NULL,
+    classifier_confidence REAL NOT NULL,
+    classifier_latency_ms REAL NOT NULL,
+    chosen_model        TEXT NOT NULL,
+    fallback_chain      TEXT NOT NULL,
+    fallback_triggered  INTEGER NOT NULL,
+    final_model         TEXT NOT NULL,
+    total_latency       REAL NOT NULL,
+    validation_passed   INTEGER NOT NULL,
+    validation_notes    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_routing_decided_at ON routing_decisions(decided_at);
+CREATE INDEX IF NOT EXISTS idx_routing_category ON routing_decisions(classified_category);
+CREATE INDEX IF NOT EXISTS idx_routing_prompt_hash ON routing_decisions(prompt_hash);
 """
 
 
@@ -152,3 +173,54 @@ def clear_all_runs(db_path: Path = DB_PATH) -> int:
     with get_connection(db_path) as connection:
         cursor = connection.execute("DELETE FROM runs")
         return cursor.rowcount
+
+
+def insert_routing_decision(
+    decision: dict,
+    db_path: Path = DB_PATH,
+) -> int:
+    """
+    Persist a routing decision row.
+
+    `decision` keys must match the routing_decisions schema. We pass a dict
+    rather than a Pydantic model because the routing module owns its own
+    schema and we want database.py to stay decoupled from routing internals.
+    """
+    with get_connection(db_path) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO routing_decisions (
+                decided_at, prompt_hash, prompt_preview,
+                classified_category, classifier_confidence, classifier_latency_ms,
+                chosen_model, fallback_chain, fallback_triggered,
+                final_model, total_latency,
+                validation_passed, validation_notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                decision["decided_at"],
+                decision["prompt_hash"],
+                decision["prompt_preview"],
+                decision["classified_category"],
+                decision["classifier_confidence"],
+                decision["classifier_latency_ms"],
+                decision["chosen_model"],
+                decision["fallback_chain"],
+                int(decision["fallback_triggered"]),
+                decision["final_model"],
+                decision["total_latency"],
+                int(decision["validation_passed"]),
+                decision.get("validation_notes"),
+            ),
+        )
+        return cursor.lastrowid
+
+
+def fetch_recent_routing_decisions(limit: int = 50, db_path: Path = DB_PATH) -> list[dict]:
+    """Return most recent routing decisions, newest first."""
+    with get_connection(db_path) as connection:
+        rows = connection.execute(
+            "SELECT * FROM routing_decisions ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]

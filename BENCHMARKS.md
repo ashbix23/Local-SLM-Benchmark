@@ -176,6 +176,19 @@ Based on these results, a rough decision framework:
 - Hardware has at least 5 GB of headroom after the OS
 - The workload includes reasoning, complex extraction, or tasks where edge cases matter
 
+### Routing in practice
+
+The decision framework above is operationalized in the `/route` endpoint. A two-layer classifier (regex pre-pass, then Gemma 2B with Instructor as fallback) buckets each prompt into one of the four categories or `general`, and the router dispatches to the model the latest benchmark batch identifies as best for that bucket. Mapping is read from SQLite per-request, so a fresh benchmark run reshapes routing without a code change.
+
+Measured on a curated 20-prompt eval set (5 reasoning, 4 each of summarization/extraction/code, 3 general):
+
+- **Classification accuracy: 85% (17/20).** All three misses came from the LLM-fallback path; the heuristic was 11/11 when it fired. Ticket target: 85%.
+- **Classifier latency: mean 483ms, p95 1181ms.** Heuristic hits return in <1ms; the LLM fallback adds 700–1800ms per call due to Gemma 2B TTFT under local Ollama. Ticket target was p95 < 500ms; the LLM path alone exceeds that, so any prompt that touches the fallback blows the budget.
+
+The honest read: the two-layer design works exactly as intended, but the 500ms p95 target was set assuming Gemma 2B inference is sub-500ms. On this hardware (M2 Air, Ollama Q4_0) it isn't. Two follow-ups would close the gap: (1) replace the LLM fallback with a sentence-embedding plus nearest-neighbour classifier (sub-50ms even at p99), or (2) cache classification results by prompt hash so the LLM path runs at most once per unique prompt. Both are out of scope for this PR.
+
+The fallback chain was verified end-to-end with a forced validation failure. A code prompt routed to Llama 3.2 3B, failed validation by injection, and walked to Qwen 2.5 7B as expected, the next entry in the code category's chain.
+
 ## Limitations and what's next
 
 This benchmark is a useful starting point, not a final verdict. Specific weaknesses:
