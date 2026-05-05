@@ -65,6 +65,24 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
 CREATE INDEX IF NOT EXISTS idx_routing_decided_at ON routing_decisions(decided_at);
 CREATE INDEX IF NOT EXISTS idx_routing_category ON routing_decisions(classified_category);
 CREATE INDEX IF NOT EXISTS idx_routing_prompt_hash ON routing_decisions(prompt_hash);
+
+CREATE TABLE IF NOT EXISTS validation_outcomes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    decided_at    TEXT NOT NULL,
+    request_id    TEXT NOT NULL,
+    endpoint      TEXT NOT NULL,
+    category      TEXT NOT NULL,
+    validator     TEXT NOT NULL,
+    passed        INTEGER NOT NULL,
+    action_taken  TEXT NOT NULL,
+    latency_ms    REAL NOT NULL,
+    notes         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_validation_decided_at ON validation_outcomes(decided_at);
+CREATE INDEX IF NOT EXISTS idx_validation_request_id ON validation_outcomes(request_id);
+CREATE INDEX IF NOT EXISTS idx_validation_category ON validation_outcomes(category);
+CREATE INDEX IF NOT EXISTS idx_validation_passed ON validation_outcomes(passed);
 """
 
 
@@ -222,5 +240,60 @@ def fetch_recent_routing_decisions(limit: int = 50, db_path: Path = DB_PATH) -> 
         rows = connection.execute(
             "SELECT * FROM routing_decisions ORDER BY id DESC LIMIT ?",
             (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def insert_validation_outcome(
+    outcome: dict,
+    db_path: Path = DB_PATH,
+) -> int:
+    """
+    Persist a validation outcome row.
+
+    `outcome` keys must match the validation_outcomes schema. Same dict-not-
+    Pydantic pattern as `insert_routing_decision`: keeps the database
+    layer decoupled from the validation module's internal types.
+    """
+    with get_connection(db_path) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO validation_outcomes (
+                decided_at, request_id, endpoint, category,
+                validator, passed, action_taken,
+                latency_ms, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                outcome["decided_at"],
+                outcome["request_id"],
+                outcome["endpoint"],
+                outcome["category"],
+                outcome["validator"],
+                int(outcome["passed"]),
+                outcome["action_taken"],
+                outcome["latency_ms"],
+                outcome.get("notes"),
+            ),
+        )
+        return cursor.lastrowid
+
+
+def fetch_recent_validation_outcomes(limit: int = 50, db_path: Path = DB_PATH) -> list[dict]:
+    """Return most recent validation outcomes, newest first."""
+    with get_connection(db_path) as connection:
+        rows = connection.execute(
+            "SELECT * FROM validation_outcomes ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def fetch_validation_outcomes_for_request(request_id: str, db_path: Path = DB_PATH) -> list[dict]:
+    """Return every validation outcome tied to a single request_id."""
+    with get_connection(db_path) as connection:
+        rows = connection.execute(
+            "SELECT * FROM validation_outcomes WHERE request_id = ? ORDER BY id",
+            (request_id,),
         ).fetchall()
         return [dict(row) for row in rows]

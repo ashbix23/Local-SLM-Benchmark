@@ -16,6 +16,7 @@ Endpoints:
     GET  /history?limit — recent runs from the SQLite DB
     GET  /routing/decisions?limit : recent routing decisions for auditing
     GET  /routing/policy : current category → model mapping derived from DB
+    GET  /validation/outcomes?limit : recent validation outcomes for auditing
 
 Run:
     uvicorn app.main:app --reload
@@ -32,13 +33,17 @@ from pydantic import BaseModel, Field
 
 from app.ollama_client import OllamaClient
 from app.models import (
-    GenerateRequest, GenerateResponse,
+    GenerateRequest, GenerateResponse, ValidationBlock,
     CompareRequest, CompareResponse,
     RouteRequest, RouteResponse, RouteTrace, RouteAttempt,
 )
-from app.database import init_db, get_connection, DB_PATH, fetch_recent_routing_decisions
+from app.database import (
+    init_db, get_connection, DB_PATH,
+    fetch_recent_routing_decisions, fetch_recent_validation_outcomes,
+)
 from app.routing import Router
 from app.routing.policy import derive_mapping
+from app.validation import validate as validate_output, hook as validation_hook
 
 
 # Models we expose via /compare. Mirrors the benchmark lineup so the API
@@ -67,7 +72,7 @@ app.add_middleware(
 
 
 _client = OllamaClient()
-_router = Router(client=_client)
+_router = Router(client=_client, validator=validation_hook)
 
 
 @app.on_event("startup")
@@ -108,7 +113,14 @@ async def list_models() -> dict:
 async def generate(request: GenerateRequest) -> GenerateResponse:
     """
     Single-model generation. Returns the response text plus full timing
-    metrics — same data captured by the benchmark layer.
+    metrics, same data captured by the benchmark layer.
+
+    Runtime validation runs on the output before this returns. The
+    `category` field on the request controls which validator fires; if
+    omitted, the output is treated as `general` (minimal well-formedness
+    check). On validation failure the endpoint returns 422 by default
+    (see `endpoint_defaults.generate.on_failure_override` in
+    `config/validation.json`).
     """
     try:
         result = await _client.generate(
@@ -123,6 +135,26 @@ async def generate(request: GenerateRequest) -> GenerateResponse:
             detail=f"Generation failed: {type(exc).__name__}: {exc}",
         )
 
+    category = request.category or "general"
+    outcome = validate_output(
+        category,
+        prompt=request.prompt,
+        response=result.response_text,
+        endpoint="generate",
+    )
+
+    if not outcome.passed and outcome.recommended_action == "hard_error":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "validation_failed",
+                "validator": outcome.validator,
+                "category": outcome.category,
+                "notes": outcome.notes,
+                "request_id": outcome.request_id,
+            },
+        )
+
     return GenerateResponse(
         model=result.model,
         response=result.response_text,
@@ -130,6 +162,15 @@ async def generate(request: GenerateRequest) -> GenerateResponse:
         total_latency=result.total_latency,
         tokens_generated=result.tokens_generated,
         tokens_per_second=result.tokens_per_second,
+        validation=ValidationBlock(
+            passed=outcome.passed,
+            notes=outcome.notes,
+            validator=outcome.validator,
+            category=outcome.category,
+            latency_ms=outcome.latency_ms,
+            action_taken=outcome.recommended_action,
+            request_id=outcome.request_id,
+        ),
     )
 
 
@@ -293,4 +334,21 @@ async def routing_policy() -> dict:
 async def routing_decisions(limit: int = Query(50, ge=1, le=500)) -> dict:
     """Recent routing decisions for auditing and drift detection."""
     rows = fetch_recent_routing_decisions(limit=limit)
+    return {"count": len(rows), "rows": rows}
+
+
+# =============================================================================
+# Validation
+# =============================================================================
+
+@app.get("/validation/outcomes")
+async def validation_outcomes(limit: int = Query(50, ge=1, le=500)) -> dict:
+    """
+    Recent runtime-validation outcomes for auditing and drift detection.
+
+    Each row corresponds to one validator call against one model output.
+    The router writes one row per attempt (so the chain walk is
+    visible); /generate writes exactly one row per request.
+    """
+    rows = fetch_recent_validation_outcomes(limit=limit)
     return {"count": len(rows), "rows": rows}

@@ -21,11 +21,29 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 class GenerateRequest(BaseModel):
-    """POST /generate — single model, single prompt."""
+    """POST /generate: single model, single prompt."""
     model: str = Field(..., description="Ollama model tag, e.g. 'llama3.2:3b'")
     prompt: str
     system: Optional[str] = None
     temperature: float = 0.7
+    category: Optional[Literal["reasoning", "summarization", "extraction", "code", "general"]] = Field(
+        None,
+        description=(
+            "Output category for runtime validation. If omitted, the validator "
+            "treats the output as 'general' (minimal well-formedness check)."
+        ),
+    )
+
+
+class ValidationBlock(BaseModel):
+    """Validation outcome surfaced on generation responses."""
+    passed: bool
+    notes: str
+    validator: str
+    category: str
+    latency_ms: float
+    action_taken: str
+    request_id: str
 
 
 class GenerateResponse(BaseModel):
@@ -36,6 +54,7 @@ class GenerateResponse(BaseModel):
     total_latency: float
     tokens_generated: int
     tokens_per_second: float
+    validation: Optional[ValidationBlock] = None
 
 
 class CompareRequest(BaseModel):
