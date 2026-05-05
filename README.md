@@ -201,8 +201,6 @@ curl -s http://localhost:8000/routing/policy | jq
 
 A few non-obvious decisions worth calling out:
 
-- **Memory measurement via Ollama's `/api/ps` endpoint, not process RSS.** On Apple Silicon, the Metal framework manages model weights in GPU-shared memory outside any process's RSS accounting. Using `/api/ps` gives the actual VRAM footprint, which is what matters for hardware planning.
-- **Sequential model loading with explicit unload between sweeps.** On 8 GB hardware, running Qwen 7B without unloading the previous models would trigger swap and contaminate latency measurements. The runner unloads via `keep_alive: 0` between models.
 - **Warmup before measurement.** The first generation against a freshly-loaded model includes a 3–5 second cold-start that would otherwise skew TTFT numbers. Each model is warmed with a throwaway prompt before its real prompts run.
 - **LLM-as-judge uses a stronger model than the models under test.** Claude Sonnet 4.5 scores Gemma/Llama/Qwen outputs. A judge that shares systematic weaknesses with the models it's scoring will miss errors.
 
