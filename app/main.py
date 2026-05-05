@@ -11,7 +11,11 @@ Endpoints:
     POST /generate      — one model, one prompt, full metrics in response
     POST /compare       — same prompt against all three benchmark models in
                           parallel; returns side-by-side metrics
+    POST /route         — classify the prompt, dispatch to the benchmark-
+                          best model for that category, with fallback chain
     GET  /history?limit — recent runs from the SQLite DB
+    GET  /routing/decisions?limit — recent routing decisions for auditing
+    GET  /routing/policy — current category → model mapping derived from DB
 
 Run:
     uvicorn app.main:app --reload
@@ -27,8 +31,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.ollama_client import OllamaClient
-from app.models import GenerateRequest, GenerateResponse, CompareRequest, CompareResponse
-from app.database import init_db, get_connection, DB_PATH
+from app.models import (
+    GenerateRequest, GenerateResponse,
+    CompareRequest, CompareResponse,
+    RouteRequest, RouteResponse, RouteTrace, RouteAttempt,
+)
+from app.database import init_db, get_connection, DB_PATH, fetch_recent_routing_decisions
+from app.routing import Router
+from app.routing.policy import derive_mapping
 
 
 # Models we expose via /compare. Mirrors the benchmark lineup so the API
@@ -57,6 +67,7 @@ app.add_middleware(
 
 
 _client = OllamaClient()
+_router = Router(client=_client)
 
 
 @app.on_event("startup")
@@ -210,3 +221,77 @@ async def history(limit: int = Query(50, ge=1, le=500)) -> HistoryResponse:
 
     history_rows = [HistoryRow(**dict(row)) for row in rows]
     return HistoryResponse(count=len(history_rows), rows=history_rows)
+
+
+# =============================================================================
+# Routing
+# =============================================================================
+
+@app.post("/route", response_model=RouteResponse)
+async def route(request: RouteRequest) -> RouteResponse:
+    """
+    Benchmark-driven routing.
+
+    Classifies the prompt, looks up the highest-quality model for that
+    category from the SQLite benchmark store, and dispatches generation.
+    On validation failure, walks the fallback chain.
+
+    The response includes a `trace` field exposing the full decision —
+    classified category, confidence, chosen model, fallback chain, which
+    attempt(s) ran, and final model. Audit data is also persisted.
+    """
+    try:
+        result = await _router.route(
+            prompt=request.prompt,
+            system=request.system,
+            temperature=request.temperature,
+            force_validation_failure=request.force_validation_failure,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Routing failed: {type(exc).__name__}: {exc}",
+        )
+
+    trace_dict = result.trace_dict()
+    return RouteResponse(
+        response=result.response,
+        trace=RouteTrace(
+            classified_category=trace_dict["classified_category"],
+            classifier_confidence=trace_dict["classifier_confidence"],
+            classifier_method=trace_dict["classifier_method"],
+            classifier_latency_ms=trace_dict["classifier_latency_ms"],
+            chosen_model=trace_dict["chosen_model"],
+            fallback_chain=trace_dict["fallback_chain"],
+            fallback_triggered=trace_dict["fallback_triggered"],
+            final_model=trace_dict["final_model"],
+            attempts=[RouteAttempt(**attempt) for attempt in trace_dict["attempts"]],
+            total_latency_seconds=trace_dict["total_latency_seconds"],
+            validation_passed=trace_dict["validation_passed"],
+            validation_notes=trace_dict["validation_notes"],
+            policy_notes=trace_dict["policy_notes"],
+        ),
+    )
+
+
+@app.get("/routing/policy")
+async def routing_policy() -> dict:
+    """
+    Current category → model mapping derived from the latest benchmark
+    batch. Useful for confirming the router is reading the data you
+    expect, especially after re-running the benchmark.
+    """
+    policy = derive_mapping()
+    return {
+        "mapping": policy.mapping,
+        "fallback_chains": policy.chains,
+        "derived_from_rows": policy.derived_from_rows,
+        "notes": policy.derivation_notes,
+    }
+
+
+@app.get("/routing/decisions")
+async def routing_decisions(limit: int = Query(50, ge=1, le=500)) -> dict:
+    """Recent routing decisions for auditing and drift detection."""
+    rows = fetch_recent_routing_decisions(limit=limit)
+    return {"count": len(rows), "rows": rows}

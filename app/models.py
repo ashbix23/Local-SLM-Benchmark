@@ -51,6 +51,51 @@ class CompareResponse(BaseModel):
     results: list[GenerateResponse]
 
 
+class RouteRequest(BaseModel):
+    """POST /route — classify and dispatch to the benchmark-best model."""
+    prompt: str
+    system: Optional[str] = None
+    temperature: float = 0.7
+    force_validation_failure: bool = Field(
+        False,
+        description=(
+            "Test affordance: when true, force the first attempt's validation "
+            "to fail so the fallback chain is exercised. Used by the routing "
+            "test script; production callers should leave this false."
+        ),
+    )
+
+
+class RouteAttempt(BaseModel):
+    model: str
+    latency_seconds: float
+    validation_passed: bool
+    validation_notes: str
+
+
+class RouteTrace(BaseModel):
+    """Full trace of a routing decision — what was tried and why."""
+    classified_category: str
+    classifier_confidence: float
+    classifier_method: str
+    classifier_latency_ms: float
+    chosen_model: str
+    fallback_chain: list[str]
+    fallback_triggered: bool
+    final_model: str
+    attempts: list[RouteAttempt]
+    total_latency_seconds: float
+    validation_passed: bool
+    validation_notes: str
+    policy_notes: str
+
+
+class RouteResponse(BaseModel):
+    """POST /route — generated response plus routing trace."""
+    response: str
+    trace: RouteTrace
+
+
 # =============================================================================
 # Structured extraction targets
 # =============================================================================
