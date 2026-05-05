@@ -8,7 +8,7 @@ without code changes.
 V1 selection rule: highest mean quality score per (model, category) over
 the latest benchmark batch. Ties broken by lower mean latency.
 
-Future hooks (not built — deliberately scoped out):
+Future hooks (not built, deliberately scoped out):
   - Pareto-aware selection (quality + latency joint front)
   - Configurable selection policies (`quality_only`, `cost_aware`, etc.)
 The selection logic lives behind a single function (`derive_mapping`)
@@ -33,7 +33,7 @@ from app.database import DB_PATH, get_connection
 # benchmark categories; `general` is the low-confidence fallback bucket.
 ROUTING_CATEGORIES = ("reasoning", "summarization", "extraction", "code", "general")
 
-# Safe default — used as the last item in any fallback chain, and as the
+# Safe default, used as the last item in any fallback chain, and as the
 # pick for `general` when we have no benchmark data to consult.
 SAFE_DEFAULT_MODEL = "qwen2.5:7b"
 
@@ -78,7 +78,7 @@ def _load_latest_batch_stats(db_path: Path) -> list[CategoryStats]:
 
     A "batch" here matches the convention in database.fetch_latest_run_batch:
     runs sharing the same YYYY-MM-DDTHH prefix. Rows with no quality_score
-    are skipped — they couldn't have informed the ranking.
+    are skipped; they couldn't have informed the ranking.
     """
     with get_connection(db_path) as connection:
         latest_timestamp = connection.execute(
@@ -119,14 +119,14 @@ def derive_mapping(db_path: Path = DB_PATH) -> RoutingPolicy:
     """
     Build a fresh RoutingPolicy from whatever's in the DB right now.
 
-    Called at server startup and (cheaply) on each request — it's a single
+    Called at server startup and (cheaply) on each request; it's a single
     aggregation query. If the DB is empty (no benchmark has been run yet),
     every category routes to SAFE_DEFAULT_MODEL.
     """
     stats = _load_latest_batch_stats(db_path)
 
     if not stats:
-        # No benchmark data — everything goes to the safe default.
+        # No benchmark data; everything goes to the safe default.
         mapping = {cat: SAFE_DEFAULT_MODEL for cat in ROUTING_CATEGORIES}
         chains = {cat: [SAFE_DEFAULT_MODEL] for cat in ROUTING_CATEGORIES}
         return RoutingPolicy(
@@ -162,7 +162,7 @@ def derive_mapping(db_path: Path = DB_PATH) -> RoutingPolicy:
             chain.append(SAFE_DEFAULT_MODEL)
         chains[category] = chain
 
-    # `general` always routes to the safe default — by design, since it's
+    # `general` always routes to the safe default, by design, since it's
     # the bucket for "we're not confident what this is."
     mapping["general"] = SAFE_DEFAULT_MODEL
     chains["general"] = [SAFE_DEFAULT_MODEL]

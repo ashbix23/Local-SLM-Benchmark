@@ -118,7 +118,7 @@ class Router:
         self.db_path = db_path
 
     def _resolve_policy(self) -> RoutingPolicy:
-        """Cheap aggregation query — re-run on every request for freshness."""
+        """Cheap aggregation query; re-run on every request for freshness."""
         return derive_mapping(self.db_path)
 
     async def route(
@@ -135,7 +135,7 @@ class Router:
         first attempt's validation is forced to fail regardless of what
         the validator returns. This is how the test script verifies the
         fallback path triggers on a forced failure. It does not bypass
-        validation on subsequent attempts — those still go through the
+        validation on subsequent attempts; those still go through the
         real validator.
         """
         overall_start = time.perf_counter()
@@ -220,7 +220,7 @@ class Router:
         """
         Insert the routing decision into SQLite.
 
-        Failures here must not break the request — observability shouldn't
+        Failures here must not break the request; observability shouldn't
         be on the critical path. We swallow the exception and move on; if
         it becomes a problem we'll add a logger.
         """

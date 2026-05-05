@@ -11,11 +11,11 @@ Endpoints:
     POST /generate      — one model, one prompt, full metrics in response
     POST /compare       — same prompt against all three benchmark models in
                           parallel; returns side-by-side metrics
-    POST /route         — classify the prompt, dispatch to the benchmark-
+    POST /route         : classify the prompt, dispatch to the benchmark-
                           best model for that category, with fallback chain
     GET  /history?limit — recent runs from the SQLite DB
-    GET  /routing/decisions?limit — recent routing decisions for auditing
-    GET  /routing/policy — current category → model mapping derived from DB
+    GET  /routing/decisions?limit : recent routing decisions for auditing
+    GET  /routing/policy : current category → model mapping derived from DB
 
 Run:
     uvicorn app.main:app --reload
@@ -236,7 +236,7 @@ async def route(request: RouteRequest) -> RouteResponse:
     category from the SQLite benchmark store, and dispatches generation.
     On validation failure, walks the fallback chain.
 
-    The response includes a `trace` field exposing the full decision —
+    The response includes a `trace` field exposing the full decision:
     classified category, confidence, chosen model, fallback chain, which
     attempt(s) ran, and final model. Audit data is also persisted.
     """
@@ -245,7 +245,6 @@ async def route(request: RouteRequest) -> RouteResponse:
             prompt=request.prompt,
             system=request.system,
             temperature=request.temperature,
-            force_validation_failure=request.force_validation_failure,
         )
     except Exception as exc:
         raise HTTPException(

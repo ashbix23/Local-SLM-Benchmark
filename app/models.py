@@ -52,18 +52,10 @@ class CompareResponse(BaseModel):
 
 
 class RouteRequest(BaseModel):
-    """POST /route — classify and dispatch to the benchmark-best model."""
+    """POST /route: classify and dispatch to the benchmark-best model."""
     prompt: str
     system: Optional[str] = None
     temperature: float = 0.7
-    force_validation_failure: bool = Field(
-        False,
-        description=(
-            "Test affordance: when true, force the first attempt's validation "
-            "to fail so the fallback chain is exercised. Used by the routing "
-            "test script; production callers should leave this false."
-        ),
-    )
 
 
 class RouteAttempt(BaseModel):
@@ -74,7 +66,7 @@ class RouteAttempt(BaseModel):
 
 
 class RouteTrace(BaseModel):
-    """Full trace of a routing decision — what was tried and why."""
+    """Full trace of a routing decision: what was tried and why."""
     classified_category: str
     classifier_confidence: float
     classifier_method: str
@@ -91,7 +83,7 @@ class RouteTrace(BaseModel):
 
 
 class RouteResponse(BaseModel):
-    """POST /route — generated response plus routing trace."""
+    """POST /route: generated response plus routing trace."""
     response: str
     trace: RouteTrace
 

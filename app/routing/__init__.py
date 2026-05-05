@@ -7,9 +7,9 @@ category from SQLite, and dispatches generation. On validation failure,
 walks a configurable fallback chain.
 
 Submodules:
-    policy      — reads runs.db, returns best-model-per-category mapping
-    classifier  — zero-shot prompt classifier (Gemma 2B + Instructor)
-    router      — orchestrates classify → select → generate → validate
+    policy:      reads runs.db, returns best-model-per-category mapping
+    classifier:  zero-shot prompt classifier (Gemma 2B + Instructor)
+    router:      orchestrates classify → select → generate → validate
 """
 
 from app.routing.router import Router, RoutingResult, ValidationHook

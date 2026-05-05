@@ -147,11 +147,11 @@ The `/route` endpoint operationalizes the benchmark findings. Instead of callers
 
 ### Categories
 
-Five buckets: `reasoning`, `summarization`, `extraction`, `code`, and `general`. The first four mirror the benchmark categories. `general` is the safe-default bucket — used when classifier confidence is below threshold (default 0.6) or when the prompt clearly fits none of the others. `general` always routes to Qwen 7B.
+Five buckets: `reasoning`, `summarization`, `extraction`, `code`, and `general`. The first four mirror the benchmark categories. `general` is the safe-default bucket, used when classifier confidence is below threshold (default 0.6) or when the prompt clearly fits none of the others. `general` always routes to Qwen 7B.
 
 ### Selection rule
 
-For each of the four real categories, the policy picks the model with the **highest mean `quality_score`** in the latest benchmark batch. Ties are broken by lower mean latency. The mapping is read from the DB at request time, so re-running the benchmark immediately changes routing — no code changes, no restart.
+For each of the four real categories, the policy picks the model with the **highest mean `quality_score`** in the latest benchmark batch. Ties are broken by lower mean latency. The mapping is read from the DB at request time, so re-running the benchmark immediately changes routing; no code changes, no restart.
 
 Pareto-aware and configurable selection policies are deliberately out of scope for v1; the policy module is structured so they slot in later without touching callers.
 

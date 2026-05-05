@@ -168,7 +168,7 @@ async def run_forced_fallback(console: Console) -> int:
     # The chain must have at least 2 attempts (forced fail on the first, then a fallback).
     if len(result.fallback_chain) < 2:
         console.print(
-            "[yellow]NOTE: fallback chain has length 1 — this category only has one model "
+            "[yellow]NOTE: fallback chain has length 1; this category only has one model "
             "in the policy. Forced failure cannot demonstrate fallback. Re-run after a full "
             "benchmark sweep to populate richer chains.[/yellow]"
         )

@@ -3,13 +3,13 @@ Prompt classifier for the router.
 
 Maps an inbound prompt to one of the five routing categories. Two layers:
 
-1. CHEAP HEURISTIC — regex/keyword pre-pass. Catches obvious cases (a
+1. CHEAP HEURISTIC: regex/keyword pre-pass. Catches obvious cases (a
    prompt with ``def`` or ```` ``` ```` is almost certainly code, a prompt
    with "summarize" is almost certainly summarization). Heuristic hits
    short-circuit the LLM call entirely, which keeps p95 latency in check
    and saves Ollama load.
 
-2. LLM ZERO-SHOT — Gemma 2B via Instructor, returning a small Pydantic
+2. LLM ZERO-SHOT: Gemma 2B via Instructor, returning a small Pydantic
    schema (category + confidence). Used only when the heuristic abstains.
 
 The heuristic is intentionally conservative: it returns confidently or
@@ -17,7 +17,7 @@ not at all. Anything ambiguous goes to the LLM. That keeps the cheap
 path from biasing classification toward whatever keywords we picked.
 
 Why Gemma 2B and not Qwen 7B for classification:
-  Per the benchmark, classification is a discriminative task — it's about
+  Per the benchmark, classification is a discriminative task; it's about
   putting prompts into the right bucket, not generating high-quality
   content. The 7B's quality advantage doesn't help here, and using it
   would add 5+ seconds to every request. Gemma 2B's TTFT (under a second
@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field
 CLASSIFIER_MODEL = "gemma2:2b"
 OLLAMA_OPENAI_COMPAT_URL = "http://localhost:11434/v1"
 
-# Below this confidence we route to `general` — the safe default bucket.
+# Below this confidence we route to `general`, the safe default bucket.
 DEFAULT_CONFIDENCE_THRESHOLD = 0.6
 
 
@@ -48,7 +48,7 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.6
 # =============================================================================
 # Each heuristic is a (compiled_regex, category, confidence) tuple. We hand-
 # tuned confidences down from 1.0 because keyword hits are signals, not
-# certainties — a prompt that says "summarize this code" should still go
+# certainties; a prompt that says "summarize this code" should still go
 # to the LLM rather than getting stuck on the first matching bucket.
 
 _CODE_PATTERNS = [
@@ -83,7 +83,7 @@ _REASONING_PATTERNS = [
 def _heuristic_classify(prompt: str) -> Optional[tuple[str, float]]:
     """
     Quick pre-pass. Returns (category, confidence) when at least two
-    patterns hit for a single category — that's enough signal to skip the
+    patterns hit for a single category; that's enough signal to skip the
     LLM. Single-pattern hits are returned with lower confidence and only
     if no other category has competing hits.
     """
@@ -110,7 +110,7 @@ def _heuristic_classify(prompt: str) -> Optional[tuple[str, float]]:
     if top_n == 1 and len(nonzero) == 1:
         return top_cat, 0.55
 
-    # Mixed signals — defer to the LLM.
+    # Mixed signals: defer to the LLM.
     return None
 
 
@@ -144,7 +144,7 @@ Categories:
 - code: write, fix, or explain code.
 - general: the prompt clearly fits none of the above.
 
-Respond with the category name and a confidence score from 0.0 to 1.0. Be honest about uncertainty — if the prompt is ambiguous, return 'general' with a moderate confidence."""
+Respond with the category name and a confidence score from 0.0 to 1.0. Be honest about uncertainty; if the prompt is ambiguous, return 'general' with a moderate confidence."""
 
 
 @dataclass
@@ -193,7 +193,7 @@ class PromptClassifier:
 
     def classify(self, prompt: str) -> Classification:
         """
-        Return a Classification. Always returns — never raises. On any
+        Return a Classification. Always returns; never raises. On any
         LLM failure, falls back to ('general', 0.0, 'llm-failed').
         """
         start = time.perf_counter()
