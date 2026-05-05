@@ -94,9 +94,10 @@ def _percentile(values: list[float], p: float) -> float:
     return values_sorted[k]
 
 
-async def run_classifier_only(console: Console) -> int:
-    classifier = PromptClassifier()
-    console.print(f"[bold]Classifying {len(EVAL_SET)} prompts...[/bold]\n")
+async def run_classifier_only(console: Console, heuristic_only: bool = False) -> int:
+    classifier = PromptClassifier(heuristic_only=heuristic_only)
+    mode = "heuristic-only" if heuristic_only else "heuristic + Gemma 2B fallback"
+    console.print(f"[bold]Classifying {len(EVAL_SET)} prompts ({mode})...[/bold]\n")
     console.print(
         f"  {'#':>3}  {'expected':<14} {'predicted':<14} {'method':<12} "
         f"{'conf':>5}  {'ms':>6}  hit"
@@ -203,6 +204,13 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description="Router acceptance tests")
     parser.add_argument("--full", action="store_true", help="Also run full route() calls")
     parser.add_argument("--force-fb", action="store_true", help="Run forced-fallback smoke test")
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Heuristic-only classifier (skip Gemma 2B fallback). Useful on "
+             "memory-constrained machines or for measuring the heuristic's "
+             "ceiling in isolation.",
+    )
     args = parser.parse_args()
 
     console = Console()
@@ -211,7 +219,7 @@ async def main() -> int:
         return await run_forced_fallback(console)
     if args.full:
         return await run_full(console)
-    return await run_classifier_only(console)
+    return await run_classifier_only(console, heuristic_only=args.no_llm)
 
 
 if __name__ == "__main__":

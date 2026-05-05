@@ -168,9 +168,17 @@ class PromptClassifier:
         self,
         model: str = CLASSIFIER_MODEL,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        heuristic_only: bool = False,
     ):
+        """
+        ``heuristic_only=True`` skips the LLM fallback entirely. Anything
+        the regex pre-pass can't catch confidently is returned as
+        ``general``. Useful on memory-constrained hardware where loading
+        Gemma 2B alongside other workloads pushes the system into swap.
+        """
         self.model = model
         self.confidence_threshold = confidence_threshold
+        self.heuristic_only = heuristic_only
         self._client: Optional[instructor.Instructor] = None
 
     def _get_client(self) -> instructor.Instructor:
@@ -197,6 +205,16 @@ class PromptClassifier:
                 category=category,
                 confidence=confidence,
                 method="heuristic",
+                latency_ms=(time.perf_counter() - start) * 1000.0,
+            )
+
+        # Heuristic abstained. In heuristic-only mode we stop here and bucket
+        # the prompt as `general` so it routes to the safe default.
+        if self.heuristic_only:
+            return Classification(
+                category="general",
+                confidence=0.0,
+                method="heuristic-only",
                 latency_ms=(time.perf_counter() - start) * 1000.0,
             )
 
