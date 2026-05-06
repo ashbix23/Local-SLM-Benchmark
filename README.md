@@ -240,12 +240,6 @@ When validation fails, the system takes one of three configured actions:
 
 Defaults live in `config/validation.json` and are re-read on every request, so a config change takes effect immediately. Env-var overrides (`VALIDATION_CODE_EXEC_TIMEOUT_SECONDS`, `VALIDATION_CODE_MEMORY_LIMIT_MB`, `VALIDATION_CODE_EXECUTE_IN_SANDBOX`, `VALIDATION_DEFAULT_ON_FAILURE`) layer on top.
 
-### Sandbox notes
-
-The code executor uses `subprocess.run` with a wall-clock timeout plus POSIX `setrlimit` calls in the child. This is the conventional non-containerised pattern; the threat model is "model output that shouldn't run for 30s and shouldn't allocate 8 GB," not "actively malicious code trying to exfiltrate." On Linux all three rlimits are reliably enforced; on macOS Apple Silicon `RLIMIT_AS` is best-effort (the wall-clock timeout is the practical safety net).
-
-If you need stronger isolation, swap `app/validation/sandbox.py` for a containerised executor; the public surface (a single `execute(code, *, timeout_seconds, memory_limit_mb)` function returning a `SandboxResult`) was kept narrow specifically so this swap is a contained change.
-
 ### Persistence
 
 Every validation outcome is logged to a `validation_outcomes` table with timestamp, request ID, endpoint, category, validator name, pass/fail, action taken, latency, and notes. Browse via `GET /validation/outcomes?limit=N`. The router writes one row per attempt, so the chain walk is fully visible: a request that started on Llama 3.2 3B and ended on Qwen 7B has two rows linked by the same `request_id`.

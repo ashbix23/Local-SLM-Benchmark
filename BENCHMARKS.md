@@ -185,9 +185,23 @@ Measured on a curated 20-prompt eval set (5 reasoning, 4 each of summarization/e
 - **Classification accuracy: 85% (17/20).** All three misses came from the LLM-fallback path; the heuristic was 11/11 when it fired. Ticket target: 85%.
 - **Classifier latency: mean 483ms, p95 1181ms.** Heuristic hits return in <1ms; the LLM fallback adds 700–1800ms per call due to Gemma 2B TTFT under local Ollama. Ticket target was p95 < 500ms; the LLM path alone exceeds that, so any prompt that touches the fallback blows the budget.
 
-The honest read: the two-layer design works exactly as intended, but the 500ms p95 target was set assuming Gemma 2B inference is sub-500ms. On this hardware (M2 Air, Ollama Q4_0) it isn't. Two follow-ups would close the gap: (1) replace the LLM fallback with a sentence-embedding plus nearest-neighbour classifier (sub-50ms even at p99), or (2) cache classification results by prompt hash so the LLM path runs at most once per unique prompt. Both are out of scope for this PR.
+The two-layer design works exactly as intended, but the 500ms p95 target was set assuming Gemma 2B inference is sub-500ms. On this hardware (M2 Air, Ollama Q4_0) it isn't. Two follow-ups would close the gap: (1) replace the LLM fallback with a sentence-embedding plus nearest-neighbour classifier (sub-50ms even at p99), or (2) cache classification results by prompt hash so the LLM path runs at most once per unique prompt. Both are out of scope for this PR.
 
 The fallback chain was verified end-to-end with a forced validation failure. A code prompt routed to Llama 3.2 3B, failed validation by injection, and walked to Qwen 2.5 7B as expected, the next entry in the code category's chain.
+
+### Validation in practice
+
+The same tension that came up in routing (pass-fast for the easy cases, deep-check for the rest) shows up again in runtime validation. Each output passes through a category-aware validator before the API hands it back: extraction outputs are JSON-parsed, code outputs are AST-checked and run in a sandboxed subprocess, summarization/reasoning/general get cheap shape checks. The benchmark scoring layer stays as-is for offline evaluation; runtime validators are deliberately faster and more conservative.
+
+Measured on 18 synthetic behavior probes plus 3 sandbox pathological inputs:
+
+- **Behavior: 18/18 correct.** Coverage spans all five buckets including the two failure modes that motivated this work, malformed JSON for extraction and non-code prose for code generation.
+- **Sandbox: 3/3 contained.** An infinite loop hit the 5s wall-clock and returned `failed: timeout`. Recursive infinite recursion was caught as `RecursionError` in 20ms. A bytearray memory bomb (10 MB chunks in a tight loop) was bounded by the wall-clock at 5.08s. On Linux `RLIMIT_AS` would catch the memory case as `MemoryError`; on macOS Apple Silicon `RLIMIT_AS` is best-effort and the wall-clock is the practical safety net.
+- **Validator latency p95:** code 25.1ms, all four other categories 0.0ms (the work is microseconds of regex or `json.loads`, below our millisecond display resolution). Targets: code under 1000ms; other categories under 100ms. Code is the only category that pays measurable latency, dominated by subprocess startup.
+
+Real production paths track the synthetic numbers. A Qwen extraction response that returned valid JSON in a code fence was parsed in 0.019ms; a Gemma response that returned a joke instead of JSON was rejected in 0.18ms with HTTP 422. A Llama code response went through `ast.parse` and sandbox execution in 69ms via `/generate` and 25ms via `/route`.
+
+The audit trail demonstrates the router-validator integration: a `/route` call's first attempt was tagged `action="fallback"` after the validator returned False, which is the signal the router uses to walk the chain. That's the runtime fallback path the routing PR designed for, now actually triggered by a real validation failure rather than a test-mode injection.
 
 ## Limitations and what's next
 
