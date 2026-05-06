@@ -1,0 +1,41 @@
+{
+  "categories": {
+    "extraction": {
+      "max_response_length": 8000,
+      "require_json": true,
+      "on_failure": "fallback"
+    },
+    "code": {
+      "max_response_length": 8000,
+      "require_syntactic_validity": true,
+      "execute_in_sandbox": true,
+      "exec_timeout_seconds": 5.0,
+      "memory_limit_mb": 200,
+      "on_failure": "fallback"
+    },
+    "summarization": {
+      "min_words": 5,
+      "max_words": 500,
+      "forbid_code_fences": true,
+      "on_failure": "fallback"
+    },
+    "reasoning": {
+      "min_length": 1,
+      "max_response_length": 4000,
+      "on_failure": "fallback"
+    },
+    "general": {
+      "min_length": 1,
+      "max_response_length": 8000,
+      "on_failure": "fallback"
+    }
+  },
+  "endpoint_defaults": {
+    "generate": {
+      "on_failure_override": "hard_error"
+    },
+    "route": {
+      "on_failure_override": null
+    }
+  }
+}

@@ -159,7 +159,7 @@ Pareto-aware and configurable selection policies are deliberately out of scope f
 
 For each category, the chain is the full ranked list of models (best → worst by quality) plus Qwen 7B as a last resort if it isn't already in the list. When a validator returns `passed=False`, the router walks to the next model in the chain. If the whole chain fails, the last response is still returned but the trace flags `validation_passed=false` so the caller can decide what to do.
 
-The validation hook is a placeholder (always passes) until the validator from the next ticket lands. The router treats the hook as opaque, so swapping in the real one is a one-line change.
+The validation hook is the runtime validator from the [Output validation pipeline](#output-validation-pipeline) section. The router treats the hook as opaque, so swapping in a different validator is a one-line change in the FastAPI startup wiring.
 
 ### Persistence
 
@@ -196,6 +196,67 @@ To inspect the current category → model mapping:
 ```bash
 curl -s http://localhost:8000/routing/policy | jq
 ```
+
+## Output validation pipeline
+
+The benchmark scoring layer runs offline against a fixed prompt suite. That works for measurement but ships unvalidated output to runtime callers. The validation pipeline closes that gap: every response from `/generate` and `/route` is checked against a category-aware lightweight validator before it leaves the API.
+
+The benchmark scorers stay where they are; the runtime validators are deliberately faster and more conservative. Schema match plus full test-case execution are appropriate for offline batches; JSON parsability and an AST check plus a sandboxed smoke run are appropriate for the request path.
+
+### Decision flow
+
+```
+              ┌─────────────────┐
+   response ─▶│  category-aware │  extraction → JSON parse
+              │    validator    │  code       → ast.parse + sandbox exec
+              └────────┬────────┘  summarization → length / no fences
+                       │            reasoning → length / not-a-refusal
+                       │            general → non-empty / length cap
+                       ▼
+              ┌─────────────────┐ pass ─▶ return response + validation block
+              │  outcome + log  │ fail ─▶ recommended_action per config:
+              │  (one DB row    │           retry      → caller retries
+              │   per attempt)  │           fallback   → router walks chain
+              └─────────────────┘           hard_error → /generate returns 422
+```
+
+### Categories and checks
+
+Each category has a tight, cheap check. The validators are intentionally narrow: anything more expensive belongs in offline scoring, not on the request path.
+
+- **extraction**: strip any markdown fence, then `json.loads`. Object or array required. JSON-schema match is left for callers that opt in.
+- **code**: `ast.parse` for syntax, then a sandboxed subprocess `exec` at module level with a 5s wall-clock timeout, a 200 MB address-space cap, and `RLIMIT_CPU` / `RLIMIT_NOFILE` ceilings. PYTHONPATH is cleaned and the working directory is a fresh tempdir.
+- **summarization**: word count between 5 and 500 (configurable), no markdown code fences.
+- **reasoning**: non-empty, within length bounds, doesn't open with a refusal-style marker (`"I cannot answer"` and friends).
+- **general**: non-empty after strip, within length bounds. The catch-all bucket; we don't try to be opinionated about chit-chat shape.
+
+### Failure actions
+
+When validation fails, the system takes one of three configured actions:
+
+- **retry** — caller retries the same model with adjusted parameters (not yet wired into endpoints; reserved for callers that want it).
+- **fallback** — the router walks to the next model in the category's fallback chain. Default for `/route`.
+- **hard_error** — the endpoint returns HTTP 422 with the validator name, category, notes, and request ID. Default for `/generate`.
+
+Defaults live in `config/validation.json` and are re-read on every request, so a config change takes effect immediately. Env-var overrides (`VALIDATION_CODE_EXEC_TIMEOUT_SECONDS`, `VALIDATION_CODE_MEMORY_LIMIT_MB`, `VALIDATION_CODE_EXECUTE_IN_SANDBOX`, `VALIDATION_DEFAULT_ON_FAILURE`) layer on top.
+
+### Persistence
+
+Every validation outcome is logged to a `validation_outcomes` table with timestamp, request ID, endpoint, category, validator name, pass/fail, action taken, latency, and notes. Browse via `GET /validation/outcomes?limit=N`. The router writes one row per attempt, so the chain walk is fully visible: a request that started on Llama 3.2 3B and ended on Qwen 7B has two rows linked by the same `request_id`.
+
+### Example: validation failure on `/generate`
+
+```bash
+curl -i -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gemma2:2b",
+    "prompt": "Extract the name and age as JSON: Dr. Patel, 47.",
+    "category": "extraction"
+  }'
+```
+
+If the model returns prose instead of JSON, the response is HTTP 422 with the failure detail in the body and the outcome persisted to `validation_outcomes`. If it returns valid JSON, the response is the usual 200 with a `validation` block containing the outcome.
 
 ## Design notes
 
